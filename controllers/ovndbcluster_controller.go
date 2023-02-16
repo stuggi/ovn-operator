@@ -385,7 +385,9 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 		for _, svc := range svcList.Items {
 			// Filter out headless services
 			if svc.Spec.ClusterIP != "None" {
-				dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[0].Port))
+				serviceHostname := fmt.Sprintf("%s.%s.svc", svc.Name, svc.GetNamespace())
+				//dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[0].Port))
+				dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", serviceHostname, svc.Spec.Ports[0].Port))
 				raftAddress = append(raftAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[1].Port))
 			}
 		}
