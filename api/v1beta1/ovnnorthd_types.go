@@ -59,8 +59,9 @@ type OVNNorthdSpec struct {
 	Resources corev1.ResourceRequirements `json:"resources,omitempty"`
 
 	// +kubebuilder:validation:Optional
-	// NetworkAttachments is a list of NetworkAttachment resource names to expose the services to the given network
-	NetworkAttachments []string `json:"networkAttachments"`
+	// NetworkAttachment is a NetworkAttachment resource name to expose the service to the given network.
+	// If specified the IP address of this network is used as the dbAddress connection.
+	NetworkAttachment string `json:"networkAttachment"`
 }
 
 // OVNNorthdStatus defines the observed state of OVNNorthd

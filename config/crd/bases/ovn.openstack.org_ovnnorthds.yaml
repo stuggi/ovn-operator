@@ -55,12 +55,11 @@ spec:
                 default: info
                 description: LogLevel - Set log level info, dbg, emer etc
                 type: string
-              networkAttachments:
-                description: NetworkAttachments is a list of NetworkAttachment resource
-                  names to expose the services to the given network
-                items:
-                  type: string
-                type: array
+              networkAttachment:
+                description: NetworkAttachment is a NetworkAttachment resource name
+                  to expose the service to the given network. If specified the IP
+                  address of this network is used as the dbAddress connection.
+                type: string
               nodeSelector:
                 additionalProperties:
                   type: string

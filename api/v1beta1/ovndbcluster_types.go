@@ -76,8 +76,9 @@ type OVNDBClusterSpec struct {
 	StorageRequest string `json:"storageRequest"`
 
 	// +kubebuilder:validation:Optional
-	// NetworkAttachments is a list of NetworkAttachment resource names to expose the services to the given network
-	NetworkAttachments []string `json:"networkAttachments"`
+	// NetworkAttachment is a NetworkAttachment resource name to expose the service to the given network.
+	// If specified the IP address of this network is used as the dbAddress connection.
+	NetworkAttachment string `json:"networkAttachment"`
 }
 
 // OVNDBClusterStatus defines the observed state of OVNDBCluster

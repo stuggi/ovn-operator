@@ -227,33 +227,31 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 		common.AppSelector: serviceName,
 	}
 
-	// networks to attach to
-	for _, netAtt := range instance.Spec.NetworkAttachments {
-		_, err := nad.GetNADWithName(ctx, helper, netAtt, instance.Namespace)
-		if err != nil {
-			if k8s_errors.IsNotFound(err) {
-				instance.Status.Conditions.Set(condition.FalseCondition(
-					condition.NetworkAttachmentsReadyCondition,
-					condition.RequestedReason,
-					condition.SeverityInfo,
-					condition.NetworkAttachmentsReadyWaitingMessage,
-					netAtt))
-				return ctrl.Result{RequeueAfter: time.Second * 10}, fmt.Errorf("network-attachment-definition %s not found", netAtt)
-			}
+	// network to attach to
+	_, err := nad.GetNADWithName(ctx, helper, instance.Spec.NetworkAttachment, instance.Namespace)
+	if err != nil {
+		if k8s_errors.IsNotFound(err) {
 			instance.Status.Conditions.Set(condition.FalseCondition(
 				condition.NetworkAttachmentsReadyCondition,
-				condition.ErrorReason,
-				condition.SeverityWarning,
-				condition.NetworkAttachmentsReadyErrorMessage,
-				err.Error()))
-			return ctrl.Result{}, err
+				condition.RequestedReason,
+				condition.SeverityInfo,
+				condition.NetworkAttachmentsReadyWaitingMessage,
+				instance.Spec.NetworkAttachment))
+			return ctrl.Result{RequeueAfter: time.Second * 10}, fmt.Errorf("network-attachment-definition %s not found", instance.Spec.NetworkAttachment)
 		}
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			condition.NetworkAttachmentsReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			condition.NetworkAttachmentsReadyErrorMessage,
+			err.Error()))
+		return ctrl.Result{}, err
 	}
 
-	serviceAnnotations, err := nad.CreateNetworksAnnotation(instance.Namespace, instance.Spec.NetworkAttachments)
+	serviceAnnotations, err := nad.CreateNetworksAnnotation(instance.Namespace, []string{instance.Spec.NetworkAttachment})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed create network annotation from %s: %w",
-			instance.Spec.NetworkAttachments, err)
+			instance.Spec.NetworkAttachment, err)
 	}
 
 	// ConfigMap
@@ -344,7 +342,7 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 	instance.Status.ReadyCount = sfset.GetStatefulSet().Status.ReadyReplicas
 
 	// verify if network attachment matches expectations
-	networkReady, networkAttachmentStatus, err := nad.VerifyNetworkStatusFromAnnotation(ctx, helper, instance.Spec.NetworkAttachments, serviceLabels, instance.Status.ReadyCount)
+	networkReady, networkAttachmentStatus, err := nad.VerifyNetworkStatusFromAnnotation(ctx, helper, []string{instance.Spec.NetworkAttachment}, serviceLabels, instance.Status.ReadyCount)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -353,7 +351,7 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 	if networkReady {
 		instance.Status.Conditions.MarkTrue(condition.NetworkAttachmentsReadyCondition, condition.NetworkAttachmentsReadyMessage)
 	} else {
-		err := fmt.Errorf("not all pods have interfaces with ips as configured in NetworkAttachments: %s", instance.Spec.NetworkAttachments)
+		err := fmt.Errorf("not all pods have interfaces with ips as configured in NetworkAttachments: %s", instance.Spec.NetworkAttachment)
 		instance.Status.Conditions.Set(condition.FalseCondition(
 			condition.NetworkAttachmentsReadyCondition,
 			condition.ErrorReason,
@@ -382,15 +380,34 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 		instance.Status.Conditions.MarkTrue(condition.DeploymentReadyCondition, condition.DeploymentReadyMessage)
 		dbAddress := []string{}
 		raftAddress := []string{}
+		var svcPort int32
 		for _, svc := range svcList.Items {
+			svcPort = svc.Spec.Ports[0].Port
+
 			// Filter out headless services
 			if svc.Spec.ClusterIP != "None" {
-				serviceHostname := fmt.Sprintf("%s.%s.svc", svc.Name, svc.GetNamespace())
-				//dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[0].Port))
-				dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", serviceHostname, svc.Spec.Ports[0].Port))
+				// Test using hostname instead of ip for dbAddress connection
+				//serviceHostname := fmt.Sprintf("%s.%s.svc", svc.Name, svc.GetNamespace())
+				//dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", serviceHostname, svc.Spec.Ports[0].Port))
+
+				if instance.Spec.NetworkAttachment == "" {
+					dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svcPort))
+				}
 				raftAddress = append(raftAddress, fmt.Sprintf("tcp:%s:%d", svc.Spec.ClusterIP, svc.Spec.Ports[1].Port))
 			}
 		}
+
+		//
+		if instance.Spec.NetworkAttachment != "" {
+			net := instance.Namespace + "/" + instance.Spec.NetworkAttachment
+			if netStat, ok := instance.Status.NetworkAttachments[net]; ok {
+				for _, instanceIP := range netStat {
+					dbAddress = append(dbAddress, fmt.Sprintf("tcp:%s:%d", instanceIP, svcPort))
+				}
+			}
+
+		}
+
 		// Set DBAddress
 		instance.Status.DBAddress = strings.Join(dbAddress, ",")
 		// Set RaftAddress
