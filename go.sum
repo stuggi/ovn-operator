@@ -87,8 +87,6 @@ github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 h1:rncLxJBpFGqBztyxC
 github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7/go.mod h1:ctXNyWanKEjGj8sss1KjjHQ3ENKFm33FFnS5BKaIPh4=
 github.com/openstack-k8s-operators/infra-operator/apis v0.4.1-0.20240723072244-35220eeedc06 h1:cHFAXAVaQMatb+jBXXq4Y/OUF1P7G+0RPV9x4nPQEiE=
 github.com/openstack-k8s-operators/infra-operator/apis v0.4.1-0.20240723072244-35220eeedc06/go.mod h1:hmYvz1s8VrfUAq3NafuTglz3RnDepZ0/hukBTVASqSc=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.4.1-0.20240727081739-431d0dcd4c77 h1:NbEuAGLdhVjhvcQ6vsWflL+fHSdxrazYqlxWDPFe3wQ=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.4.1-0.20240727081739-431d0dcd4c77/go.mod h1:YlNmaOTuZNZvwlOfosPI94od/V2Itektn9KWThRzylI=
 github.com/openstack-k8s-operators/lib-common/modules/test v0.4.1-0.20240727081739-431d0dcd4c77 h1:Tkvh/a6sxe73VUuKDiOKNaYVQDpwEIXQZ4aLBQAOD44=
 github.com/openstack-k8s-operators/lib-common/modules/test v0.4.1-0.20240727081739-431d0dcd4c77/go.mod h1:0h76CxD9g0z2Hk7fGFOZcjnzT1tQQ/yRNv3OXng+S/A=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
@@ -116,6 +114,8 @@ github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
+github.com/stuggi/lib-common/modules/common v0.0.0-20240730063724-33ba43a75546 h1:6zV9bFbGWW1cXOjjy9QyCMLILYaPJibQmH3o9Ypw+a8=
+github.com/stuggi/lib-common/modules/common v0.0.0-20240730063724-33ba43a75546/go.mod h1:YlNmaOTuZNZvwlOfosPI94od/V2Itektn9KWThRzylI=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.3.5/go.mod h1:mwnBkeHKe2W/ZEtQ+71ViKU8L12m81fl3OWwC1Zlc8k=
