@@ -122,6 +122,10 @@ type OVNDBClusterSpecCore struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// TLS - Parameters related to TLS
 	TLS tls.SimpleService `json:"tls,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=false
+	Noop bool `json:"noop,omitempty"`
 }
 
 // OVNDBClusterStatus defines the observed state of OVNDBCluster

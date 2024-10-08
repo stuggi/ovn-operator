@@ -83,6 +83,9 @@ spec:
                 description: NodeSelector to target subset of worker nodes running
                   this service
                 type: object
+              noop:
+                default: false
+                type: boolean
               probeIntervalToActive:
                 default: 60000
                 description: Active probe interval from standby to active ovsdb-server

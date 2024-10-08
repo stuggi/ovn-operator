@@ -58,13 +58,26 @@ func StatefulSet(
 	var preStopCmd []string
 	cmd := []string{"/usr/bin/dumb-init"}
 	args := []string{ServiceCommand}
+	if instance.Spec.Noop {
+		args = []string{
+			"/bin/sleep",
+			"infinity"}
+	}
+
 	//
 	// https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
 	//
+	livenessProbeCmd := []string{
+		"/usr/bin/pidof", "ovsdb-server",
+	}
+	if instance.Spec.Noop {
+		livenessProbeCmd = []string{
+			"/bin/true",
+		}
+	}
+
 	livenessProbe.Exec = &corev1.ExecAction{
-		Command: []string{
-			"/usr/bin/pidof", "ovsdb-server",
-		},
+		Command: livenessProbeCmd,
 	}
 	readinessProbe.Exec = livenessProbe.Exec
 
@@ -78,6 +91,9 @@ func StatefulSet(
 				Command: preStopCmd,
 			},
 		},
+	}
+	if instance.Spec.Noop {
+		lifecycle = &corev1.Lifecycle{}
 	}
 	serviceName := ovnv1.ServiceNameNB
 	if instance.Spec.DBType == ovnv1.SBDBType {
