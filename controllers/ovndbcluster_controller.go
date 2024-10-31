@@ -670,135 +670,222 @@ func (r *OVNDBClusterReconciler) reconcileServices(
 
 	Log.Info("Reconciling OVN DB Cluster Service")
 
-	//
-	// Ensure the ovndbcluster headless service Exists
-	//
-	headlessServiceLabels := util.MergeMaps(serviceLabels, map[string]string{"type": ovnv1.ServiceHeadlessType})
+	var svc *corev1.Service
 
-	headlesssvc, err := service.NewService(
-		ovndbcluster.HeadlessService(serviceName, instance, headlessServiceLabels, serviceLabels),
-		time.Duration(5)*time.Second,
-		nil,
-	)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	ctrlResult, err := headlesssvc.CreateOrPatch(ctx, helper)
-	if err != nil {
-		return ctrl.Result{}, err
-	} else if (ctrlResult != ctrl.Result{}) {
-		return ctrl.Result{}, nil
-	}
-
-	podList, err := ovndbcluster.OVNDBPods(ctx, instance, helper, serviceLabels)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	for _, ovnPod := range podList.Items {
+	if instance.Spec.Override.Service == nil {
 		//
-		// Create the ovndbcluster pod service if none exists
+		// Ensure the ovndbcluster headless service Exists
 		//
-		ovndbSelectorLabels := map[string]string{
-			common.AppSelector:                   serviceName,
-			"statefulset.kubernetes.io/pod-name": ovnPod.Name,
-		}
-		ovndbServiceLabels := util.MergeMaps(ovndbSelectorLabels, map[string]string{"type": ovnv1.ServiceClusterType})
-		svc, err := service.NewService(
-			ovndbcluster.Service(ovnPod.Name, instance, ovndbServiceLabels, ovndbSelectorLabels),
+		headlessServiceLabels := util.MergeMaps(serviceLabels, map[string]string{"type": ovnv1.ServiceHeadlessType})
+
+		headlesssvc, err := service.NewService(
+			ovndbcluster.HeadlessService(serviceName, instance, headlessServiceLabels, serviceLabels),
 			time.Duration(5)*time.Second,
 			nil,
 		)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
+
+		ctrlResult, err := headlesssvc.CreateOrPatch(ctx, helper)
+		if err != nil {
+			return ctrl.Result{}, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrl.Result{}, nil
+		}
+
+		podList, err := ovndbcluster.OVNDBPods(ctx, instance, helper, serviceLabels)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		for _, ovnPod := range podList.Items {
+			//
+			// Create the ovndbcluster pod service if none exists
+			//
+			ovndbSelectorLabels := map[string]string{
+				common.AppSelector:                   serviceName,
+				"statefulset.kubernetes.io/pod-name": ovnPod.Name,
+			}
+			ovndbServiceLabels := util.MergeMaps(ovndbSelectorLabels, map[string]string{"type": ovnv1.ServiceClusterType})
+			svc, err := service.NewService(
+				ovndbcluster.Service(ovnPod.Name, instance, ovndbServiceLabels, ovndbSelectorLabels),
+				time.Duration(5)*time.Second,
+				nil,
+			)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			ctrlResult, err := svc.CreateOrPatch(ctx, helper)
+			if err != nil {
+				return ctrl.Result{}, err
+			} else if (ctrlResult != ctrl.Result{}) {
+				return ctrl.Result{}, nil
+			}
+			// create service - end
+		}
+
+		// Delete any extra services left after scale down
+		clusterServiceLabels := util.MergeMaps(serviceLabels, map[string]string{"type": ovnv1.ServiceClusterType})
+		svcList, err := service.GetServicesListWithLabel(
+			ctx,
+			helper,
+			helper.GetBeforeObject().GetNamespace(),
+			clusterServiceLabels,
+		)
+		if err == nil && len(svcList.Items) > int(*(instance.Spec.Replicas)) {
+			for i := len(svcList.Items) - 1; i >= int(*(instance.Spec.Replicas)); i-- {
+				fullServiceName := fmt.Sprintf("%s-%d", serviceName, i)
+				svcLabels := map[string]string{
+					common.AppSelector:                   serviceName,
+					"statefulset.kubernetes.io/pod-name": fullServiceName,
+				}
+				err = service.DeleteServicesWithLabel(
+					ctx,
+					helper,
+					instance,
+					svcLabels,
+				)
+				if err != nil {
+					err = fmt.Errorf("error while deleting service with name %s: %w", fullServiceName, err)
+					return ctrl.Result{}, err
+				}
+			}
+		}
+
+		// When the cluster is attached to an external network, create DNS record for every
+		// cluster member so it can be resolved from outside cluster (edpm nodes)
+		if instance.Spec.NetworkAttachment != "" {
+			var dnsIPsList []string
+			// TODO(averdagu): use built in Min once go1.21 is used
+			minLen := ovn_common.Min(len(podList.Items), int(*(instance.Spec.Replicas)))
+			for _, ovnPod := range podList.Items[:minLen] {
+				svc, err = service.GetServiceWithName(
+					ctx,
+					helper,
+					ovnPod.Name,
+					ovnPod.Namespace,
+				)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+
+				dnsIP, err := getPodIPInNetwork(ovnPod, instance.Namespace, instance.Spec.NetworkAttachment)
+				dnsIPsList = append(dnsIPsList, dnsIP)
+				if err != nil {
+					return ctrl.Result{}, err
+				}
+
+			}
+			// DNSData info is called every reconcile loop to ensure that even if a pod gets
+			// restarted and it's IP has changed, the DNSData CR will have the correct info.
+			// If nothing changed this won't modify the current dnsmasq pod.
+			err = ovndbcluster.DNSData(
+				ctx,
+				helper,
+				serviceName,
+				dnsIPsList,
+				instance,
+				serviceLabels,
+			)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			// It can be possible that not all pods are ready, so DNSData won't
+			// have complete information, return error to retrigger reconcile loop
+			// Returning here instead of at the beggining of the for is done to
+			// expose the already created pods to other services/dataplane nodes
+			if len(podList.Items) < int(*(instance.Spec.Replicas)) {
+				Log.Info(fmt.Sprintf("not all pods are yet created, number of expected pods: %v, current pods: %v", *(instance.Spec.Replicas), len(podList.Items)))
+				return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
+			}
+		}
+
+	} else {
+
+		svcOverride := instance.Spec.Override.Service
+		if svcOverride.EmbeddedLabelsAnnotations == nil {
+			svcOverride.EmbeddedLabelsAnnotations = &service.EmbeddedLabelsAnnotations{}
+		}
+		if svcOverride.Spec == nil {
+			svcOverride.Spec = &service.OverrideServiceSpec{}
+		}
+
+		// Create the service
+		svc, err := service.NewService(
+			ovndbcluster.Service(serviceName, instance, serviceLabels, serviceLabels),
+			time.Duration(5)*time.Second,
+			svcOverride,
+		)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		/*
+			svc, err := service.NewService(
+				service.GenericService(&service.GenericServiceDetails{
+					Name:      serviceName,
+					Namespace: instance.Namespace,
+					Labels:    serviceLabels,
+					Selector:  serviceLabels,
+					Port: service.GenericServicePort{
+						Name:     serviceName,
+						Port:     data.Port,
+						Protocol: corev1.ProtocolTCP,
+					},
+				}),
+				5,
+				&svcOverride.OverrideSpec,
+			)
+
+			if err != nil {
+				instance.Status.Conditions.Set(condition.FalseCondition(
+					condition.CreateServiceReadyCondition,
+					condition.ErrorReason,
+					condition.SeverityWarning,
+					condition.CreateServiceReadyErrorMessage,
+					err.Error()))
+
+				return ctrl.Result{}, err
+			}
+		*/
+
+		// add annotation to register service name in dnsmasq
+		if svc.GetServiceType() == corev1.ServiceTypeLoadBalancer {
+			svc.AddAnnotation(map[string]string{
+				service.AnnotationHostnameKey: svc.GetServiceHostname(),
+			})
+		}
+
 		ctrlResult, err := svc.CreateOrPatch(ctx, helper)
 		if err != nil {
 			return ctrl.Result{}, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrl.Result{}, nil
 		}
+		/*
+			if err != nil {
+				instance.Status.Conditions.Set(condition.FalseCondition(
+					condition.CreateServiceReadyCondition,
+					condition.ErrorReason,
+					condition.SeverityWarning,
+					condition.CreateServiceReadyErrorMessage,
+					err.Error()))
+
+				return ctrlResult, err
+			} else if (ctrlResult != ctrl.Result{}) {
+				instance.Status.Conditions.Set(condition.FalseCondition(
+					condition.CreateServiceReadyCondition,
+					condition.RequestedReason,
+					condition.SeverityInfo,
+					condition.CreateServiceReadyRunningMessage))
+				return ctrlResult, nil
+			}
+		*/
 		// create service - end
+
 	}
 
-	// Delete any extra services left after scale down
-	clusterServiceLabels := util.MergeMaps(serviceLabels, map[string]string{"type": ovnv1.ServiceClusterType})
-	svcList, err := service.GetServicesListWithLabel(
-		ctx,
-		helper,
-		helper.GetBeforeObject().GetNamespace(),
-		clusterServiceLabels,
-	)
-	if err == nil && len(svcList.Items) > int(*(instance.Spec.Replicas)) {
-		for i := len(svcList.Items) - 1; i >= int(*(instance.Spec.Replicas)); i-- {
-			fullServiceName := fmt.Sprintf("%s-%d", serviceName, i)
-			svcLabels := map[string]string{
-				common.AppSelector:                   serviceName,
-				"statefulset.kubernetes.io/pod-name": fullServiceName,
-			}
-			err = service.DeleteServicesWithLabel(
-				ctx,
-				helper,
-				instance,
-				svcLabels,
-			)
-			if err != nil {
-				err = fmt.Errorf("error while deleting service with name %s: %w", fullServiceName, err)
-				return ctrl.Result{}, err
-			}
-		}
-	}
-
-	var svc *corev1.Service
-
-	// When the cluster is attached to an external network, create DNS record for every
-	// cluster member so it can be resolved from outside cluster (edpm nodes)
-	if instance.Spec.NetworkAttachment != "" {
-		var dnsIPsList []string
-		// TODO(averdagu): use built in Min once go1.21 is used
-		minLen := ovn_common.Min(len(podList.Items), int(*(instance.Spec.Replicas)))
-		for _, ovnPod := range podList.Items[:minLen] {
-			svc, err = service.GetServiceWithName(
-				ctx,
-				helper,
-				ovnPod.Name,
-				ovnPod.Namespace,
-			)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
-			dnsIP, err := getPodIPInNetwork(ovnPod, instance.Namespace, instance.Spec.NetworkAttachment)
-			dnsIPsList = append(dnsIPsList, dnsIP)
-			if err != nil {
-				return ctrl.Result{}, err
-			}
-
-		}
-		// DNSData info is called every reconcile loop to ensure that even if a pod gets
-		// restarted and it's IP has changed, the DNSData CR will have the correct info.
-		// If nothing changed this won't modify the current dnsmasq pod.
-		err = ovndbcluster.DNSData(
-			ctx,
-			helper,
-			serviceName,
-			dnsIPsList,
-			instance,
-			serviceLabels,
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-		// It can be possible that not all pods are ready, so DNSData won't
-		// have complete information, return error to retrigger reconcile loop
-		// Returning here instead of at the beggining of the for is done to
-		// expose the already created pods to other services/dataplane nodes
-		if len(podList.Items) < int(*(instance.Spec.Replicas)) {
-			Log.Info(fmt.Sprintf("not all pods are yet created, number of expected pods: %v, current pods: %v", *(instance.Spec.Replicas), len(podList.Items)))
-			return ctrl.Result{RequeueAfter: 1 * time.Second}, nil
-		}
-	}
 	// dbAddress will contain ovsdbserver-(nb|sb).openstack.svc or empty
 	scheme := "tcp"
 	if instance.Spec.TLS.Enabled() {
