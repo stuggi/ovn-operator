@@ -41,6 +41,7 @@ import (
 	infranetworkv1 "github.com/openstack-k8s-operators/infra-operator/apis/network/v1beta1"
 	topologyv1 "github.com/openstack-k8s-operators/infra-operator/apis/topology/v1beta1"
 	"github.com/openstack-k8s-operators/lib-common/modules/common"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/configmap"
@@ -98,6 +99,7 @@ func (r *OVNDBClusterReconciler) GetLogger(ctx context.Context) logr.Logger {
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete;
 //+kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;create;patch;update;delete;
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;patch;update;delete;
+//+kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;update;patch;
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;
 //+kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch
 //+kubebuilder:rbac:groups=network.openstack.org,resources=dnsdata,verbs=get;list;watch;create;update;patch;delete
@@ -662,6 +664,10 @@ func (r *OVNDBClusterReconciler) reconcileNormal(ctx context.Context, instance *
 	stateful := sfset.GetStatefulSet()
 	if stateful.Generation == stateful.Status.ObservedGeneration {
 		instance.Status.ReadyCount = stateful.Status.ReadyReplicas
+	}
+
+	if err := r.reconcilePVCLabels(ctx, instance); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Only run runtime config when all pods are ready and no rolling update in progress
@@ -1338,4 +1344,28 @@ func (r *OVNDBClusterReconciler) createHashOfInputHashes(
 		Log.Info(fmt.Sprintf("Input maps hash %s - %s", common.InputHashName, hash))
 	}
 	return hash, nil
+}
+
+// reconcilePVCLabels ensures backup/restore labels are set on OVN DB PVCs.
+// VolumeClaimTemplates are immutable on existing StatefulSets, so this
+// patches labels on PVCs that were created before backup labels were added.
+func (r *OVNDBClusterReconciler) reconcilePVCLabels(ctx context.Context, instance *ovnv1.OVNDBCluster) error {
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(instance.Namespace),
+		client.MatchingLabels{"owner": instance.Name},
+	}
+	if err := r.List(ctx, pvcList, listOpts...); err != nil {
+		return fmt.Errorf("listing PVCs for %s: %w", instance.Name, err)
+	}
+	for i := range pvcList.Items {
+		if _, err := backup.EnsureBackupLabels(ctx, r.Client, &pvcList.Items[i],
+			util.MergeMaps(
+				backup.GetBackupLabels(backup.CategoryControlPlane),
+				backup.GetRestoreLabels(backup.RestoreOrder00, backup.CategoryControlPlane),
+			)); err != nil {
+			return err
+		}
+	}
+	return nil
 }

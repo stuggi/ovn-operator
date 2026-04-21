@@ -16,6 +16,7 @@ import (
 	topologyv1 "github.com/openstack-k8s-operators/infra-operator/apis/topology/v1beta1"
 	"github.com/openstack-k8s-operators/lib-common/modules/common"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/affinity"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/env"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/util"
@@ -255,7 +256,11 @@ func StatefulSet(
 		WhenScaled:  appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 	}
 
-	volumeClaimLabels := util.MergeMaps(labels, map[string]string{"owner": instance.Name})
+	volumeClaimLabels := util.MergeMaps(labels,
+		map[string]string{"owner": instance.Name},
+		backup.GetBackupLabels(backup.CategoryControlPlane),
+		backup.GetRestoreLabels(backup.RestoreOrder00, backup.CategoryControlPlane),
+	)
 
 	statefulset.Spec.VolumeClaimTemplates = []corev1.PersistentVolumeClaim{
 		{
