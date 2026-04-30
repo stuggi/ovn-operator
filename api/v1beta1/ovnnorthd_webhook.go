@@ -28,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -49,9 +48,7 @@ func SetupOVNNorthdDefaults(defaults OVNNorthdDefaults) {
 	ovndbclusterlog.Info("OVNNorthd defaults initialized", "defaults", defaults)
 }
 
-var _ webhook.Defaulter = &OVNNorthd{}
-
-// Default implements webhook.Defaulter so a webhook will be registered for the type
+// Default implements defaulting for the type
 func (r *OVNNorthd) Default() {
 	ovnnorthdlog.Info("default", "name", r.Name)
 
@@ -74,9 +71,7 @@ func (spec *OVNNorthdSpecCore) Default() {
 	// nothing here yet
 }
 
-var _ webhook.Validator = &OVNNorthd{}
-
-// ValidateCreate implements webhook.Validator so a webhook will be registered for the type
+// ValidateCreate implements validation for the type
 func (r *OVNNorthd) ValidateCreate() (admission.Warnings, error) {
 	ovnnorthdlog.Info("validate create", "name", r.Name)
 
